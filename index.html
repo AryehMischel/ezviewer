@@ -1,0 +1,216 @@
+﻿<meta charset="utf-8" />
+<title>EZView 360 Stereoscopic images</title>
+<meta name="description" content="Stereoscopic 360 Viewer" />
+<script src="https://aframe.io/releases/1.0.4/aframe.min.js"></script>
+<script src="https://unpkg.com/aframe-cubemap-component@2.1.1/dist/aframe-cubemap-component.min.js"></script>
+<script src="./lib/aframe-stereocam-component.js"></script>
+<script src="./lib/super-hands.min.js"></script>
+
+<script>
+
+    // Detect user platform and serve the corresponding web page
+    AFRAME.registerComponent('photo-manager', {
+        schema: {
+            imgFolder: {type:'string', default:'nan'}
+        },
+        init: function () {
+
+            const scene = document.querySelector("a-scene");
+            const skies = document.getElementById("skies")
+            const assets =  document.querySelector("a-assets");
+            let len = 0;
+            console.log(assets)
+
+            const imgFolder = this.data;
+
+            let currentIndex = 0;
+            let stereoLeft = [];
+            let stereoRight = [];
+            
+            
+            scene.addEventListener("loaded", ()=>{
+                uploadImages(imgFolder);
+            });
+            
+            scene.addEventListener("set", setLayer);
+            scene.addEventListener("generateSkies", generateSkies);
+            scene.addEventListener("next", next);
+            scene.addEventListener("previous", previous);
+       
+        
+
+            function setLayer(){ //settings layers to render the correct image to each eye
+                console.log("setting layers...")
+                stereoLeft.forEach(img => img.getObject3D("mesh").layers.set(1)) // layer 1 is left eye, layer 2 is right 
+                stereoRight.forEach(img => img.getObject3D("mesh").layers.set(2))
+                stereoLeft.slice(1).forEach(img => img.setAttribute("visible", "false")); // toggling the visibility off for all photo spheres, excluding the first image                                                                        
+                stereoRight.slice(1).forEach(img => img.setAttribute("visible", "false"));     
+            }
+
+
+            function uploadImages(folder){ //adding all images from input folder into a-frame's a-assets 
+                console.log("uploading images...")
+                let xhr = new XMLHttpRequest();
+                xhr.open("GET", folder, true);
+                xhr.responseType = 'document';
+                xhr.onload = () => {
+                    if (xhr.status === 200) {
+                        let elements = xhr.response.getElementsByTagName("a");
+                        function isValidImg(value) {
+                            return value >= value.href.match(/\.(jpe?g|png|gif|webp)$/) // add whichever extensions you need 
+                        }
+                        
+                        const fileArr = Array.prototype.slice.call(elements)
+                        const Images = fileArr.filter(isValidImg)
+                        len = Images.length;
+                        
+                        if(len % 2 !== 0){
+                            throw new Error("Error!: odd number of image files found in " + folder)+ ". Ann even number of images is required";
+                            return;
+                        }
+                        
+                        for(let x = 0; x < len; x++){
+                           
+                            let sky = document.createElement("a-sky");
+                            let img = document.createElement("img");
+                            img.setAttribute('src', Images[x].href)
+                            img.setAttribute('id', x.toString())
+                            if(x+1 === len){
+                                let scene = document.querySelector("a-scene").emit("generateSkies")
+                            }
+                            assets.append(img)
+                        }
+                    }
+                    else {
+                        alert('Request failed. Returned status of ' + xhr.status);
+                    }
+                }
+
+                xhr.send()
+               
+              
+            }
+            
+            function generateSkies(){ // creating photo spheres to display our 360 images
+                console.log("generating Skies...")
+
+                for(let i = 0; i < len; i++){
+                    let sky = document.createElement("a-sky");
+                    
+                    if (i < len/2) {
+                        stereoLeft.push(sky)
+                    } else{
+                        stereoRight.push(sky)
+                    }
+                    
+                    if(i === len-1){
+                        sky.addEventListener("loaded", function(){
+                            let scene = document.querySelector("a-scene").emit("set") // after last spherical 360 image is loaded in we call the setLayer() function via emitting an event 
+                        })
+                        
+                    }
+                    sky.setAttribute("src", "#"+ i.toString())
+                   
+                    skies.appendChild(sky);
+                }
+                
+            }
+
+
+            function next(){
+                selectImage(currentIndex+1)
+            }
+
+            function previous(){
+                selectImage(currentIndex-1)
+            }
+            
+            function selectImage(Index){
+                stereoLeft[currentIndex].setAttribute("visible", "false")
+                stereoRight[currentIndex].setAttribute("visible", "false")
+                stereoLeft[Index].setAttribute("visible", "true")
+                stereoRight[Index].setAttribute("visible", "true")
+                currentIndex = Index;
+            }
+
+
+        }
+    });
+</script>
+
+<script>
+
+    AFRAME.registerComponent("controller-toggle", {
+        init: function () {
+            let el = this.el;
+            let scene = document.querySelector("a-scene");
+            el.addEventListener("abuttondown", function () {
+                console.log("switch")
+                scene.emit("next")
+
+            });
+        },
+    });
+</script>
+
+<script>
+    AFRAME.registerComponent("left-toggle", {
+        init: function () {
+            let el = this.el;
+            let scene = document.querySelector("a-scene");
+            el.addEventListener("xbuttondown", function () {
+                console.log("switch")
+                scene.emit("previous")
+
+            });
+        },
+    });
+</script>
+
+</head>
+
+<body>
+
+
+<a-scene go photo-manager="./assets/StereoImages/">
+    <a-assets id="assets" timeout="10000">
+    </a-assets>
+
+    <!-- XR Rig -->
+    <a-entity>
+
+        <!-- Head -->
+        <a-entity position="0 0 0">
+            <a-entity camera look-controls stereocam="eye:left;"></a-entity>
+        </a-entity>
+        
+       <!-- hands -->
+        <a-entity id="hands" visible="false">
+            <a-entity
+                    id="lhand"
+                    left-toggle
+                    hand-controls="hand: left"
+
+            ></a-entity>
+            <a-entity
+                    id="rhand"
+                    controller-toggle
+                    hand-controls="hand: right"
+            ></a-entity>
+        </a-entity>
+    </a-entity>
+
+     <!--Generated 360 image spheres will be a child of this object -->
+    <a-entity id ="skies">
+
+
+    </a-entity>
+</a-scene>
+
+<script>
+    function delay(time) {
+        return new Promise(resolve => setTimeout(resolve, time));
+    }
+</script>
+</body>
+</html>
